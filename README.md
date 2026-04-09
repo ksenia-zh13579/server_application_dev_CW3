@@ -3,5 +3,5 @@
 ## Запуск приложения
 
 Для запуска API нужно:
- - установить зависимости: npm ci
+ - установить зависимости: pip install -r requirements.txt
  - запустить сервер: uvicorn app:app --reload
