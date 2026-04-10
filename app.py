@@ -5,13 +5,13 @@ from fastapi.openapi.utils import get_openapi
 
 from models import User, UserInDB
 from database import fake_users_db, get_user_from_db
-from security import security, verify_password, get_password_hash, verify_docs_credentials
+from security import security, verify_password, get_password_hash, verify_docs_credentials, create_jwt_token, get_user_from_token
 import config
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
 # Task 6.1
-''''
+'''
 def authenticate_user(credentials: HTTPBasicCredentials = Depends(security)):
     user = get_user_from_db(credentials.username)
     if user is None or user.password != credentials.password:
@@ -44,7 +44,7 @@ def register(user : User):
 def check_login(response : Response, user: UserInDB = Depends(auth_user)):
     response.headers["WWW-Authenticate"] = "Basic"
     return {"message": f"Welcome, {user.username}!"}
-
+    
 # Task 6.3
 def auth_docs(credentials: HTTPBasicCredentials = Depends(security)):
     if config.mode == 'PROD':
@@ -74,3 +74,32 @@ def get_openapi_schema(user : User = Depends(auth_docs)):
     return get_openapi(title=app.title, version=app.version, routes=app.routes)
 
 # Task 6.4
+def auth_user_jwt(user: User):
+    userDB = get_user_from_db(user.username)
+    if userDB is None or not verify_password(user.password, userDB.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Invalid credentials"
+        )
+    token = create_jwt_token({"sub": user.username})
+    return token
+
+@app.post("/login")
+def post_login(token : str = Depends(auth_user_jwt)):
+    try:
+        return {"token": token}
+    except HTTPException as error:
+        return {"error": error.detail}
+    
+@app.get("/protected_resource")
+def get_protected_resource(request: Request):
+    token = request.headers.get("Authorization").split(" ")[1]
+    username = get_user_from_token(token)
+    user = get_user_from_db(username)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Invalid credentials"
+        )
+    return {"message": f"Welcome to the protected resource, {user.username}!"}
+
