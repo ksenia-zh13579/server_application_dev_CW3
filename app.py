@@ -2,6 +2,8 @@ from fastapi import FastAPI, Depends, status, HTTPException, Response, Request
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
+from pyrate_limiter import Duration, Limiter, Rate
+from fastapi_limiter.depends import RateLimiter
 
 from models import User, UserInDB
 from database import fake_users_db, get_user_from_db
@@ -34,12 +36,14 @@ def auth_user(credentials: HTTPBasicCredentials = Depends(security)):
         )
     return user
 
+'''
 @app.post('/register')
 def register(user : User):
     userindb = UserInDB(username=user.username, hashed_password=get_password_hash(user.password))
     fake_users_db.append(userindb)
     return {"message": "User successfully added"}
-    
+''' 
+
 @app.get('/login')
 def check_login(response : Response, user: UserInDB = Depends(auth_user)):
     response.headers["WWW-Authenticate"] = "Basic"
@@ -83,7 +87,7 @@ def auth_user_jwt(user: User):
         )
     token = create_jwt_token({"sub": user.username})
     return token
-
+'''
 @app.post("/login")
 def post_login(token : str = Depends(auth_user_jwt)):
     try:
@@ -102,4 +106,40 @@ def get_protected_resource(request: Request):
             detail="Invalid credentials"
         )
     return {"message": f"Welcome to the protected resource, {user.username}!"}
+'''
+
+# Task 6.5
+@app.post(
+    '/register',
+    dependencies=[Depends(RateLimiter(limiter=Limiter(Rate(1, Duration.MINUTE))))]
+)
+def register(response : Response, user : User):
+    if get_user_from_db(user.username) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, 
+            detail="User already exists"
+        )
+    userindb = UserInDB(username=user.username, hashed_password=get_password_hash(user.password))
+    fake_users_db.append(userindb)
+    response.status_code = 201
+    return {"message": "New user created"}
+
+@app.post(
+    "/login",
+    dependencies=[Depends(RateLimiter(limiter=Limiter(Rate(5, Duration.MINUTE))))]
+)
+def post_login(data: User):
+    user = get_user_from_db(data.username)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="User not found"
+        )
+    if not verify_password(data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Authorization failed"
+        )
+    access_token = create_jwt_token({"sub": user.username})
+    return {"access_token": access_token}
 
