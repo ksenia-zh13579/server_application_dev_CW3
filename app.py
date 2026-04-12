@@ -4,6 +4,8 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 from pyrate_limiter import Duration, Limiter, Rate
 from fastapi_limiter.depends import RateLimiter
+import sqlite3
+from database_sqlite import get_db_connection, create_register_table
 
 from models import User, UserInDB, UserWRoles, UserRegister, Permissions, Product
 from database import fake_users_db, get_user_from_db, get_user, USERS_DATA, PRODUCTS_DATA, get_product, get_user_from_token
@@ -103,6 +105,7 @@ def post_login(data: User):
 '''
 
 # Task 7.1
+'''
 @app.post('/register')
 def post_register(response : Response, user : UserRegister):
     if get_user(user.username) is not None:
@@ -165,4 +168,30 @@ def delete_product(product_name: str, current_user: UserWRoles = Depends(get_use
         )
     PRODUCTS_DATA[:] = [product for product in PRODUCTS_DATA if product.name != product_name]
     return {"deleted product": deleted_product.model_dump_json()}
+'''
 
+# Task 8.1
+create_register_table()
+
+@app.post('/register')
+def create_user(user: User):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (user.username, user.password))
+    conn.commit()
+    conn.close()
+    
+    return {"message": "User added successfully!"}
+
+@app.get("/users")
+def read_users():
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT id, username FROM users")
+    users = cursor.fetchall()
+    
+    conn.close()
+    
+    return {"users": [{"id": user[0], "username": user[1]} for user in users]}
