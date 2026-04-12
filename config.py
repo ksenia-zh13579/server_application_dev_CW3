@@ -7,7 +7,11 @@ env.read_env()
 mode = env.str("MODE")
 docs_user = env.str("DOCS_USER")
 docs_password = env.str("DOCS_PASSWORD")
+
 algorithm = env.str("ALGORITHM")
 secret_key = env.str("SECRET_KEY")
 access_token_expire_minutes = env.int("ACCESS_TOKEN_EXPIRE_MINUTES")
+
 db_name = env.str("DB_NAME")
+
+database_url = env.str("DATABASE_URL")

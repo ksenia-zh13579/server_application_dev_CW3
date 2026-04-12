@@ -53,3 +53,13 @@ class UserWRoles(UserInDB):
 
         self.permissions = all_permissions
         return self
+    
+# Task 8.2
+class TodoCreate(BaseModel):
+    title: str
+    description: str
+    completed: bool = False
+
+class TodoReturn(TodoCreate):
+    id: int
+    

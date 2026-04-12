@@ -5,15 +5,26 @@ from fastapi.openapi.utils import get_openapi
 from pyrate_limiter import Duration, Limiter, Rate
 from fastapi_limiter.depends import RateLimiter
 import sqlite3
-from database_sqlite import get_db_connection, create_register_table
+#import asyncpg
+from contextlib import asynccontextmanager
 
-from models import User, UserInDB, UserWRoles, UserRegister, Permissions, Product
+from models import User, UserInDB, UserWRoles, UserRegister, Permissions, Product, TodoCreate, TodoReturn
 from database import fake_users_db, get_user_from_db, get_user, USERS_DATA, PRODUCTS_DATA, get_product, get_user_from_token
 from security import security, verify_password, get_password_hash, verify_docs_credentials, create_jwt_token, get_username_from_token
 from auth import authenticate_user, auth_user, auth_docs, auth_user_jwt
 from rbac import PermissionChecker
+from database_sqlite import get_db_connection_sqlite, create_register_table
+from database_postgresql import database 
+'''get_db_connection_postgres''' 
 
-app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+# Task 8.2
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await database.connect()
+    yield
+    await database.disconnect()
+
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 
 # Task 6.1
 '''
@@ -175,7 +186,7 @@ create_register_table()
 
 @app.post('/register')
 def create_user(user: User):
-    conn = get_db_connection()
+    conn = get_db_connection_sqlite()
     cursor = conn.cursor()
     
     cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (user.username, user.password))
@@ -186,7 +197,7 @@ def create_user(user: User):
 
 @app.get("/users")
 def read_users():
-    conn = get_db_connection()
+    conn = get_db_connection_sqlite()
     cursor = conn.cursor()
     
     cursor.execute("SELECT id, username FROM users")
@@ -195,3 +206,132 @@ def read_users():
     conn.close()
     
     return {"users": [{"id": user[0], "username": user[1]} for user in users]}
+
+# Task 8.2
+'''
+@app.post("/todos")
+async def create_task(todo: Todo, db: asyncpg.Connection = Depends(get_db_connection_postgres)):
+    await db.execute(\'''
+        INSERT INTO todo (title, description) VALUES (($1), ($2))
+    \''', todo.title, todo.description)
+    return {"message": "Task added successfully!"}
+'''
+
+@app.post("/todos/", response_model=TodoReturn)
+async def create_task(todo: TodoCreate):
+    query = """
+        INSERT INTO todo (title, description, completed)
+        VALUES (:title, :description, :completed)
+        RETURNING id
+    """
+    try:
+        todo_id = await database.execute(
+            query=query,
+            values=todo.model_dump()
+        )
+        return TodoReturn(
+            id=todo_id,
+            **todo.model_dump()
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Ошибка создания задачи: {str(e)}"
+        )
+
+@app.get("/todos/{todo_id}", response_model=TodoReturn)
+async def get_task(todo_id: int):
+    query = """
+        SELECT id, title, description, completed 
+        FROM todo 
+        WHERE id = :todo_id
+    """
+    try:
+        result = await database.fetch_one(
+            query=query,
+            values={"todo_id": todo_id}
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Ошибка получения задачи: {str(e)}"
+        )
+
+    if not result:
+        raise HTTPException(
+            status_code=404,
+            detail="Задача с указанным ID не найдена"
+        )
+
+    return TodoReturn(
+        id=result["id"],
+        title=result["title"],
+        description=result["description"],
+        completed=result["completed"]
+    )
+
+@app.put("/todos/{todo_id}", response_model=TodoReturn)
+async def update_task(todo_id: int, todo: TodoCreate):
+    query = """
+        UPDATE todo
+        SET title = :title, description = :description, completed = :completed
+        WHERE id = :todo_id
+        RETURNING id, title, description, completed
+    """
+    
+    values = {
+        "todo_id": todo_id,
+        "title": todo.title,
+        "description": todo.description,
+        "completed": todo.completed
+    }
+
+    try:
+        result = await database.fetch_one(query=query, values=values)
+        
+        if not result:
+            raise HTTPException(
+                status_code=404,
+                detail="Задача с указанным ID не найдена"
+            )
+            
+        return TodoReturn(**result)
+        
+    except HTTPException as he:
+        raise he
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Ошибка обновления задачи: {str(e)}"
+        )
+
+@app.delete("/todos/{todo_id}", response_model=dict)
+async def delete_task(todo_id: int):
+    query = """
+        DELETE FROM todo 
+        WHERE id = :todo_id
+        RETURNING id
+    """
+    try:
+        deleted_id = await database.execute(
+            query=query,
+            values={"todo_id": todo_id}
+        )
+        
+        if not deleted_id:
+            raise HTTPException(
+                status_code=404,
+                detail="Задача с указанным ID не найдена"
+            )
+            
+        return {"message": "Задача успешно удалена"}
+        
+    except HTTPException as he:
+        raise he
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Ошибка удаления задачи: {str(e)}"
+        )

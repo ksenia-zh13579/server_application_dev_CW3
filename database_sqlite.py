@@ -2,13 +2,13 @@ import sqlite3
 
 import config
 
-def get_db_connection():
+def get_db_connection_sqlite():
     conn = sqlite3.connect(config.db_name)
     conn.row_factory = sqlite3.Row  # Это позволяет получать данные в виде словаря
     return conn
 
 def create_register_table():
-    conn = get_db_connection()
+    conn = get_db_connection_sqlite()
     cursor = conn.cursor()
 
     cursor.execute("""
