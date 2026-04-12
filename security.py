@@ -1,8 +1,9 @@
 from passlib.context import CryptContext
-from fastapi import HTTPException, status
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi import HTTPException, status, Depends
+from fastapi.security import HTTPBasic, HTTPBasicCredentials, OAuth2PasswordBearer
 from secrets import compare_digest
 import jwt
+import datetime
 
 import config
 
@@ -23,15 +24,17 @@ def verify_docs_credentials(credentials: HTTPBasicCredentials):
     return compare_digest(credentials.username, config.docs_user) and compare_digest(credentials.password, config.docs_password)
 
 # Task 6.4
-SECRET_KEY = "supermegaultrasecret"
-ALGORITHM = "HS256"
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 def create_jwt_token(data: dict):
-    return jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM)
+    to_encode = data.copy()
+    expire = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=int(config.access_token_expire_minutes))
+    to_encode.update({"exp": expire})
+    return jwt.encode(data, config.secret_key, algorithm=config.algorithm)
 
-def get_user_from_token(token: str):
+def get_username_from_token(token: str = Depends(oauth2_scheme)):
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, config.secret_key, algorithms=[config.algorithm])
         return payload.get("sub")
     except jwt.ExpiredSignatureError:
         raise HTTPException(
@@ -43,3 +46,4 @@ def get_user_from_token(token: str):
             status_code=status.HTTP_401_UNAUTHORIZED, 
             detail="Invalid token"
         )
+    
